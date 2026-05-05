@@ -239,6 +239,52 @@ def fallback_response(user_message: str, context: dict) -> str:
 
 
 # ============================================
+# NUCLEAR ECHO CLEANER
+# ============================================
+
+def nuclear_clean(text: str) -> str:
+    """
+    Strips all known echo/corruption patterns from AI responses.
+    Last line of defense even if the upstream bugs are fixed.
+    """
+    import re
+
+    # Pattern 1: nested "I remember something related: ..." chains
+    # Removes the entire prefix chain recursively
+    while re.search(r'I remember something related:\s*["\']?', text, re.IGNORECASE):
+        text = re.sub(r'I remember something related:\s*["\']?', '', text, flags=re.IGNORECASE)
+
+    # Pattern 2: [assistant] / [user] / [system] role tags
+    text = re.sub(r'\[(assistant|user|system|ASSISTANT|USER|SYSTEM)\]\s*', '', text)
+
+    # Pattern 3: repeated "How can I help you with that?" — keep only first
+    phrase = "How can I help you with that?"
+    count = text.count(phrase)
+    if count > 1:
+        idx = text.index(phrase)
+        text = text[:idx + len(phrase)]
+
+    # Pattern 4: remove wrapping quotes left by pattern 1 cleanup
+    text = re.sub(r'^["\'\s]+', '', text)
+    text = re.sub(r'["\'\s]+$', '', text)
+
+    # Pattern 5: deduplicate repeated sentences (catches any other loop)
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    seen = {}
+    deduped = []
+    for s in sentences:
+        key = s.strip().lower()[:80]
+        if not key:
+            continue
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] <= 1:
+            deduped.append(s)
+    text = ' '.join(deduped).strip()
+
+    return text if text else "I'm here to help. What would you like to know?"
+
+
+# ============================================
 # MAIN CHAT ENDPOINT
 # ============================================
 
@@ -275,6 +321,9 @@ def api_chat():
     if not response_text:
         response_text = fallback_response(user_message, context)
         provider = "fallback"
+
+    # 6. NUCLEAR ECHO CLEANER — strip any echo corruption that slipped through
+    response_text = nuclear_clean(response_text)
 
     # 6. Store assistant reply in softwire + history ONCE
     store_in_softwire("assistant", response_text)
