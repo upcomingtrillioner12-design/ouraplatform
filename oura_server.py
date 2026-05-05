@@ -210,6 +210,80 @@ def api_clear():
 
 
 # ============================================
+# NEW: CHAT ENDPOINT (ADDED FOR FRONTEND)
+# ============================================
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """
+    MAIN CHAT ENDPOINT - Connects your softwire memory to the frontend
+    This is what the HTML calls when you type a message
+    """
+    data = request.get_json(silent=True) or {}
+    user_message = data.get("message", "").strip()
+    session_id = data.get("session_id", "")
+    
+    if not user_message:
+        return jsonify({"error": "empty message"}), 400
+    
+    print(f"[CHAT] Session: {session_id[:20] if session_id else 'new'} | Message: {user_message[:50]}...")
+    
+    # ============================================
+    # STEP 1: Store user message in memory
+    # ============================================
+    try:
+        memory.store_conversation_turn("user", user_message)
+    except Exception as e:
+        print(f"Store error: {e}")
+    
+    # ============================================
+    # STEP 2: Try to recall relevant past memories
+    # ============================================
+    recalled_context = ""
+    try:
+        recall_result = memory.recall_from_text(user_message, noise_fraction=0.05)
+        if recall_result and recall_result.best_match_text:
+            recalled_context = recall_result.best_match_text
+            print(f"[RECALL] Found: {recalled_context[:50]}...")
+    except Exception as e:
+        print(f"Recall error: {e}")
+    
+    # ============================================
+    # STEP 3: Generate a response using the recalled memory
+    # ============================================
+    
+    # Build a simple response with memory context
+    if recalled_context:
+        response_text = f"I remember something related: \"{recalled_context}\"\n\nHow can I help you with that?"
+    else:
+        # Check if we have any stored patterns
+        pattern_count = memory.network.n_patterns if hasattr(memory, 'network') else 0
+        
+        if pattern_count == 0:
+            response_text = f"You said: \"{user_message}\"\n\n(This is our first conversation. I'll remember what you tell me!)"
+        else:
+            response_text = f"I understand you're asking about: \"{user_message}\"\n\nI have {pattern_count} memories stored so far. What else would you like to know?"
+    
+    # ============================================
+    # STEP 4: Store assistant response in memory
+    # ============================================
+    try:
+        memory.store_conversation_turn("assistant", response_text)
+    except Exception as e:
+        print(f"Store response error: {e}")
+    
+    # ============================================
+    # STEP 5: Return response to frontend
+    # ============================================
+    return jsonify({
+        "text": response_text,
+        "session_id": session_id or "new_session",
+        "provider": "softwire",
+        "patterns_stored": memory.network.n_patterns if hasattr(memory, 'network') else 0
+    })
+
+
+# ============================================
 # MAIN
 # ============================================
 
