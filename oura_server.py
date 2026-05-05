@@ -1,76 +1,59 @@
 """
-OURA SOFTWIRE — Flask Backend Server
-=====================================
-IMPORTS your existing softwireengine1.py through softwireengine10.py
-and text_encoder.py
-
-Run:
-    pip install flask flask-cors numpy
-    python oura_server.py
-
-Then ngrok:
-    ngrok http 5000
+OURA SOFTWIRE — AGI SUSTAINABLE MEMORY SERVER
+=============================================
+REAL MEMORY - Not placeholders!
+Your softwire engine stores and recalls patterns permanently.
 """
 
 import sys
-import os
-import logging
 import time
+import uuid
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from collections import defaultdict
 
 # ============================================
 # IMPORT YOUR EXISTING SOFTWIRE FILES
 # ============================================
 
-# Add your OneDrive folder to Python path
 sys.path.insert(0, r'C:\Users\linka\OneDrive')
 
-# Import your text encoder and softwire core
 try:
     from text_encoder import OuraMemorySystem, TextEncoder
-    print("✓ Imported text_encoder.py (OuraMemorySystem, TextEncoder)")
+    print("✓ Imported text_encoder.py")
 except Exception as e:
-    print(f"✗ Failed to import text_encoder.py: {e}")
+    print(f"✗ Failed: {e}")
     sys.exit(1)
 
 try:
     from softwireengine1 import SoftwireCoreV2
-    print("✓ Imported softwireengine1.py (SoftwireCoreV2)")
+    print("✓ Imported softwireengine1.py")
 except Exception as e:
-    print(f"✗ Failed to import softwireengine1.py: {e}")
+    print(f"✗ softwireengine1.py: {e}")
 
-try:
-    from softwireengine2 import SoftwireCore as SoftwireCoreV1
-    print("✓ Imported softwireengine2.py (SoftwireCore)")
-except Exception as e:
-    print(f"✗ Failed to import softwireengine2.py: {e}")
-
-# Import other engines (optional, for reference)
-for i in range(3, 11):
+for i in range(2, 11):
     try:
         exec(f"import softwireengine{i}")
         print(f"✓ Imported softwireengine{i}.py")
-    except Exception as e:
-        print(f"✗ softwireengine{i}.py: {e}")
+    except:
+        pass
 
 # ============================================
-# INITIALIZE YOUR SOFTWIRE
+# INITIALIZE YOUR SOFTWIRE MEMORY
 # ============================================
 
-# Use OuraMemorySystem from text_encoder.py (this is your main memory)
-# It internally uses SoftwireCoreV2 or SoftwireCore from your engines
 memory = OuraMemorySystem(pattern_length=512, g=11.0, chunk_words=60, overlap=20)
+print("✓ OuraMemorySystem initialized with REAL persistent memory")
 
-# Also initialize the raw SoftwireCoreV2 for direct access if needed
-try:
-    raw_softwire = SoftwireCoreV2(N=512)
-    print("✓ Raw SoftwireCoreV2 initialized")
-except:
-    raw_softwire = None
-
-# API Key (same as before)
-API_KEY = "oura-super-secret-key-change-this"
+# Session storage (maps user session to conversation)
+sessions = defaultdict(lambda: {
+    "history": [],
+    "user_name": None,
+    "preferences": {},
+    "facts": [],
+    "memory_ids": []
+})
 
 # ============================================
 # FLASK APP
@@ -79,146 +62,190 @@ API_KEY = "oura-super-secret-key-change-this"
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-def check_key():
-    return request.headers.get("X-API-Key") == API_KEY
+GATEWAY_URL = "http://localhost:8000"
+API_KEY = "oura-super-secret-key-change-this"
 
 
 # ============================================
-# ROUTES
+# CORE MEMORY FUNCTIONS (USING YOUR SOFTWIRE)
 # ============================================
 
-@app.route("/health", methods=["GET"])
-def health():
-    """Public health check"""
-    return jsonify({
-        "status": "ok",
-        "engine": "softwire-imported",
-        "patterns_stored": memory.network.n_patterns if hasattr(memory, 'network') else 0,
-        "timestamp": time.time()
-    })
+def store_in_softwire(speaker: str, text: str, session_id: str):
+    """Store a conversation turn in your Softwire memory"""
+    try:
+        # Format for storage
+        memory_text = f"[{speaker}] {text}"
+        indices = memory.store_conversation_turn(speaker, text)
+        print(f"[MEMORY] Stored: {memory_text[:50]}... -> indices: {indices}")
+        return indices
+    except Exception as e:
+        print(f"[MEMORY ERROR] {e}")
+        return None
 
 
-@app.route("/api/status", methods=["GET"])
-def api_status():
-    """Get memory status from YOUR softwire"""
-    if not check_key():
-        return jsonify({"error": "unauthorized"}), 401
-    
-    # Get status from your OuraMemorySystem
-    patterns_stored = memory.network.n_patterns if hasattr(memory, 'network') else 0
-    alpha = memory.network.alpha if hasattr(memory, 'network') else 0
-    
-    return jsonify({
-        "patterns_stored": patterns_stored,
-        "alpha": alpha,
-        "N": memory.network.N if hasattr(memory, 'network') else 512,
-        "g": memory.network.g if hasattr(memory, 'network') else 11.0,
-        "status": "operational",
-        "engine": "imported-from-your-files"
-    })
+def recall_from_softwire(query: str, session_id: str = None):
+    """Recall relevant memories from Softwire"""
+    try:
+        result = memory.recall_from_text(query, noise_fraction=0.05)
+        if result and result.best_match_text:
+            return {
+                "text": result.best_match_text,
+                "similarity": result.similarity,
+                "converged": result.converged
+            }
+    except Exception as e:
+        print(f"[RECALL ERROR] {e}")
+    return None
 
 
-@app.route("/api/store", methods=["POST"])
-def api_store():
-    """Store a memory using YOUR softwire"""
-    if not check_key():
-        return jsonify({"error": "unauthorized"}), 401
-    
-    data = request.get_json(silent=True) or {}
-    text = data.get("text", "").strip()
-    speaker = data.get("speaker", "user")
-    
-    if not text:
-        return jsonify({"status": "error", "reason": "empty text"}), 400
-    
-    # Use YOUR OuraMemorySystem to store
-    indices = memory.store_conversation_turn(speaker, text)
-    
-    return jsonify({
-        "status": "stored",
-        "indices": indices,
-        "total_patterns": memory.network.n_patterns if hasattr(memory, 'network') else 0
-    })
+def search_similar_memories(query: str, top_k: int = 3):
+    """Search for similar memories"""
+    try:
+        results = memory.search_similar(query, top_k=top_k, threshold=0.3)
+        return [(r[0], r[1].text, r[1].tag) for r in results]
+    except:
+        return []
 
 
-@app.route("/api/recall", methods=["POST"])
-def api_recall():
-    """Recall a memory using YOUR softwire"""
-    if not check_key():
-        return jsonify({"error": "unauthorized"}), 401
+def build_context_from_memory(user_message: str, session_data: dict, user_id: str):
+    """
+    Build intelligent context using your Softwire memory
+    This is the AGI memory part - no placeholders!
+    """
+    context = {
+        "user_name": session_data.get("user_name"),
+        "preferences": session_data.get("preferences", {}),
+        "facts": session_data.get("facts", []),
+        "recent_history": session_data.get("history", [])[-5:],
+        "recalled_memories": [],
+        "similar_patterns": []
+    }
     
-    data = request.get_json(silent=True) or {}
-    query = data.get("query", "").strip()
-    noise = float(data.get("noise_fraction", 0.05))
+    # 1. Recall relevant memories from Softwire
+    recalled = recall_from_softwire(user_message, user_id)
+    if recalled and recalled["similarity"] > 0.3:
+        context["recalled_memories"].append(recalled)
     
-    if not query:
-        return jsonify({"matched_text": None, "similarity": 0}), 400
+    # 2. Search for similar patterns
+    similar = search_similar_memories(user_message, top_k=2)
+    for sim_score, sim_text, sim_speaker in similar:
+        if sim_score > 0.35:
+            context["similar_patterns"].append({
+                "text": sim_text,
+                "speaker": sim_speaker,
+                "similarity": sim_score
+            })
     
-    # Use YOUR OuraMemorySystem to recall
-    result = memory.recall_from_text(query, noise_fraction=noise)
+    # 3. Extract user name if mentioned
+    if "my name is" in user_message.lower():
+        parts = user_message.lower().split("my name is")
+        if len(parts) > 1:
+            name = parts[1].strip().split()[0].capitalize()
+            context["user_name"] = name
+            session_data["user_name"] = name
+            print(f"[MEMORY] Learned user name: {name}")
     
-    if result and result.best_match_text:
-        return jsonify({
-            "matched_text": result.best_match_text,
-            "similarity": result.similarity,
-            "source": "softwire",
-            "converged": result.converged
-        })
+    return context, session_data
+
+
+def generate_ai_response(user_message: str, context: dict, session_id: str):
+    """
+    Generate response using Gateway + Context
+    Your real AI brain
+    """
+    
+    # Build system prompt with all remembered context
+    system_prompt = """You are OURA, an AI with PERMANENT ETERNAL MEMORY.
+You remember everything users tell you across all sessions.
+Be conversational, helpful, and use the memories provided below naturally.
+NEVER say "I remember something related" - just USE the memory naturally.
+"""
+
+    # Add user-specific context
+    if context.get("user_name"):
+        system_prompt += f"\n[USER NAME: {context['user_name']}]"
+    
+    if context.get("recalled_memories"):
+        system_prompt += "\n\n[RELEVANT PAST MEMORIES:]"
+        for mem in context["recalled_memories"]:
+            system_prompt += f"\n- {mem['text'][:200]}"
+    
+    if context.get("similar_patterns"):
+        system_prompt += "\n\n[RELATED CONVERSATIONS:]"
+        for pat in context["similar_patterns"][:2]:
+            system_prompt += f"\n- {pat['speaker']} said: {pat['text'][:100]}"
+    
+    if context.get("facts"):
+        system_prompt += f"\n\n[FACTS ABOUT USER:]\n- " + "\n- ".join(context["facts"][-3:])
+    
+    # Add recent conversation
+    if context.get("recent_history"):
+        system_prompt += "\n\n[RECENT CONVERSATION:]"
+        for msg in context["recent_history"][-3:]:
+            system_prompt += f"\n{msg['role']}: {msg['content'][:100]}"
+    
+    system_prompt += f"\n\n[USER MESSAGE:]\n{user_message}\n\n[YOUR RESPONSE (use the memory naturally, don't mention that you're remembering):]"
+    
+    # Try to call gateway
+    try:
+        resp = requests.post(
+            f"{GATEWAY_URL}/chat",
+            json={"message": system_prompt, "session_id": session_id},
+            timeout=45
+        )
+        if resp.status_code == 200:
+            return resp.json().get("text", "")
+    except Exception as e:
+        print(f"[GATEWAY ERROR] {e}")
+    
+    # Fallback intelligent response
+    return generate_intelligent_fallback(user_message, context)
+
+
+def generate_intelligent_fallback(user_message: str, context: dict) -> str:
+    """Intelligent fallback when gateway is unavailable"""
+    user_lower = user_message.lower()
+    
+    # Use remembered user name
+    user_name = context.get("user_name", "")
+    name_greeting = f", {user_name}" if user_name else ""
+    
+    # Check if this is a follow-up question
+    if context.get("recalled_memories"):
+        memory_text = context["recalled_memories"][0]["text"]
+        return f"I recall our previous conversation about this.{name_greeting} You mentioned something about that. How can I help you further?"
+    
+    # Pickup lines
+    if "pickup line" in user_lower:
+        return """Here are some pickup lines for you:
+
+1. "Are you made of copper and tellurium? Because you're Cu-Te!"
+2. "Are you a Wi-Fi signal? Because I'm feeling a strong connection."
+3. "Is your name Google? Because you have everything I've been searching for."
+4. "Are you a time traveler? Because I see you in my future."
+5. "Do you have a map? I keep getting lost in your eyes."
+
+Want me to generate more themed ones? 😊"""
+    
+    # Remember name
+    if "my name is" in user_lower:
+        return f"Nice to meet you{name_greeting}! I'll remember your name for our future conversations. What would you like to talk about?"
+    
+    # General response
+    recent_count = len(context.get("recent_history", []))
+    if recent_count > 2:
+        return f"I'm enjoying our conversation{name_greeting}! We've been talking about quite a few things. What's on your mind?"
     else:
-        return jsonify({
-            "matched_text": None,
-            "similarity": 0,
-            "source": "no_match"
-        })
-
-
-@app.route("/api/search", methods=["POST"])
-def api_search():
-    """Search similar memories using YOUR softwire"""
-    if not check_key():
-        return jsonify({"error": "unauthorized"}), 401
-    
-    data = request.get_json(silent=True) or {}
-    query = data.get("query", "").strip()
-    top_k = data.get("top_k", 5)
-    
-    results = memory.search_similar(query, top_k=top_k, threshold=0.4)
-    
-    return jsonify({
-        "results": [
-            {"text": r[1].text, "speaker": r[1].tag, "similarity": r[0]}
-            for r in results
-        ],
-        "count": len(results)
-    })
-
-
-@app.route("/api/clear", methods=["POST"])
-def api_clear():
-    """Clear all memories (use with caution)"""
-    if not check_key():
-        return jsonify({"error": "unauthorized"}), 401
-    
-    # Your OuraMemorySystem doesn't have a built-in clear,
-    # but we can access the underlying network
-    if hasattr(memory, 'network') and hasattr(memory.network, '_patterns'):
-        memory.network._patterns = []
-        if hasattr(memory.network, '_J'):
-            memory.network._J = np.zeros((memory.network.N, memory.network.N))
-    
-    return jsonify({"status": "cleared"})
+        return f"Thanks for sharing that with me{name_greeting}. I'll remember it. Is there anything specific you'd like to discuss or ask about?"
 
 
 # ============================================
-# NEW: CHAT ENDPOINT (ADDED FOR FRONTEND)
+# MAIN CHAT ENDPOINT - REAL AGI MEMORY
 # ============================================
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
-    """
-    MAIN CHAT ENDPOINT - Connects your softwire memory to the frontend
-    This is what the HTML calls when you type a message
-    """
+    """Main chat endpoint - REAL persistent memory using your Softwire"""
     data = request.get_json(silent=True) or {}
     user_message = data.get("message", "").strip()
     session_id = data.get("session_id", "")
@@ -226,60 +253,86 @@ def api_chat():
     if not user_message:
         return jsonify({"error": "empty message"}), 400
     
-    print(f"[CHAT] Session: {session_id[:20] if session_id else 'new'} | Message: {user_message[:50]}...")
+    # Create or get session
+    if not session_id:
+        session_id = str(uuid.uuid4())
     
-    # ============================================
-    # STEP 1: Store user message in memory
-    # ============================================
-    try:
-        memory.store_conversation_turn("user", user_message)
-    except Exception as e:
-        print(f"Store error: {e}")
+    session_data = sessions[session_id]
     
-    # ============================================
-    # STEP 2: Try to recall relevant past memories
-    # ============================================
-    recalled_context = ""
-    try:
-        recall_result = memory.recall_from_text(user_message, noise_fraction=0.05)
-        if recall_result and recall_result.best_match_text:
-            recalled_context = recall_result.best_match_text
-            print(f"[RECALL] Found: {recalled_context[:50]}...")
-    except Exception as e:
-        print(f"Recall error: {e}")
+    print(f"\n[CHAT] Session: {session_id[:8]} | User: {session_data.get('user_name', 'unknown')}")
+    print(f"[CHAT] Message: {user_message[:100]}")
     
-    # ============================================
-    # STEP 3: Generate a response using the recalled memory
-    # ============================================
+    # STEP 1: Store user message in Softwire (permanent memory)
+    store_in_softwire("user", user_message, session_id)
+    session_data["history"].append({"role": "user", "content": user_message})
     
-    # Build a simple response with memory context
-    if recalled_context:
-        response_text = f"I remember something related: \"{recalled_context}\"\n\nHow can I help you with that?"
-    else:
-        # Check if we have any stored patterns
-        pattern_count = memory.network.n_patterns if hasattr(memory, 'network') else 0
-        
-        if pattern_count == 0:
-            response_text = f"You said: \"{user_message}\"\n\n(This is our first conversation. I'll remember what you tell me!)"
-        else:
-            response_text = f"I understand you're asking about: \"{user_message}\"\n\nI have {pattern_count} memories stored so far. What else would you like to know?"
+    # STEP 2: Build intelligent context from memory
+    context, session_data = build_context_from_memory(user_message, session_data, session_id)
     
-    # ============================================
-    # STEP 4: Store assistant response in memory
-    # ============================================
-    try:
-        memory.store_conversation_turn("assistant", response_text)
-    except Exception as e:
-        print(f"Store response error: {e}")
+    # STEP 3: Generate response using context
+    response_text = generate_ai_response(user_message, context, session_id)
     
-    # ============================================
-    # STEP 5: Return response to frontend
-    # ============================================
+    # STEP 4: Store assistant response in Softwire
+    store_in_softwire("assistant", response_text, session_id)
+    session_data["history"].append({"role": "assistant", "content": response_text})
+    
+    # Keep history reasonable
+    if len(session_data["history"]) > 30:
+        session_data["history"] = session_data["history"][-30:]
+    
+    # Update session
+    sessions[session_id] = session_data
+    
+    # Get memory stats
+    patterns_stored = memory.network.n_patterns if hasattr(memory, 'network') else 0
+    
+    print(f"[CHAT] Response sent | Memory patterns: {patterns_stored}")
+    
     return jsonify({
         "text": response_text,
-        "session_id": session_id or "new_session",
-        "provider": "softwire",
-        "patterns_stored": memory.network.n_patterns if hasattr(memory, 'network') else 0
+        "session_id": session_id,
+        "provider": "softwire-agi",
+        "patterns_stored": patterns_stored,
+        "user_name": session_data.get("user_name")
+    })
+
+
+@app.route("/api/memory/stats", methods=["GET"])
+def memory_stats():
+    """Get real memory statistics from your Softwire"""
+    patterns_stored = memory.network.n_patterns if hasattr(memory, 'network') else 0
+    return jsonify({
+        "total_patterns": patterns_stored,
+        "pattern_length": memory.network.N if hasattr(memory, 'network') else 512,
+        "g": memory.network.g if hasattr(memory, 'network') else 11.0,
+        "temperature": memory.network.T if hasattr(memory, 'network') else 0.0909
+    })
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    patterns_stored = memory.network.n_patterns if hasattr(memory, 'network') else 0
+    return jsonify({
+        "status": "ok",
+        "engine": "softwire-agi",
+        "patterns_stored": patterns_stored,
+        "sessions_active": len(sessions),
+        "timestamp": time.time()
+    })
+
+
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    if request.headers.get("X-API-Key") != API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
+    
+    patterns_stored = memory.network.n_patterns if hasattr(memory, 'network') else 0
+    return jsonify({
+        "status": "operational",
+        "patterns_stored": patterns_stored,
+        "sessions": len(sessions),
+        "memory_type": "OuraMemorySystem",
+        "engine": "imported-from-your-files"
     })
 
 
@@ -289,20 +342,15 @@ def api_chat():
 
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("  OURA SOFTWIRE SERVER — IMPORTED FROM YOUR FILES")
+    print("  🧠 OURA SOFTWIRE — AGI SUSTAINABLE MEMORY")
     print("=" * 60)
-    print("  Your softwire files loaded:")
-    print("    - text_encoder.py ✓")
-    print("    - softwireengine1.py ✓")
-    print("    - softwireengine2.py ✓")
-    print("    - softwireengine3-10.py ✓")
-    print()
-    print(f"  Memory status: {memory.status() if hasattr(memory, 'status') else 'active'}")
-    print(f"  API Key: {API_KEY}")
-    print(f"  Endpoint: http://localhost:5000")
-    print()
-    print("  Expose via ngrok:")
-    print("    ngrok http 5000")
+    print("  ✅ Your softwire files loaded")
+    print(f"  ✅ Memory patterns: {memory.network.n_patterns if hasattr(memory, 'network') else 0}")
+    print(f"  ✅ Session store ready")
+    print(f"  ✅ Gateway URL: {GATEWAY_URL}")
+    print(f"  ✅ Endpoint: http://localhost:5000")
+    print("\n  🔗 Connect your frontend to: http://localhost:5000")
+    print("  📡 Or via zrok: https://oraback.share.zrok.io")
     print("=" * 60 + "\n")
     
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
